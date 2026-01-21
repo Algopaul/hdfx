@@ -1,0 +1,31 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+*.egg-info/
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Packaging
+*.egg-info/
+dist/
+build/
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Coverage / test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+
+# HDF5 / data
+*.h5
+*.hdf5
+*.hdf
+*.npz

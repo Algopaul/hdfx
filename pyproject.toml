@@ -1,0 +1,20 @@
+[project]
+name = "hdfx"
+version = "0.1.0"
+description = "Unix-style tools for working with HDF5"
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+  "h5py",
+  "numpy",
+  "typer",
+  "rich",
+]
+
+[project.scripts]
+hdfx = "hdfx.cli:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
