@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from hdfx.base import auto_chunk_rows_multi, default_fields, get_chunk_rows
+from hdfx.base import default_fields, get_chunk_rows
 
 
 def h5merge(
