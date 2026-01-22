@@ -29,7 +29,7 @@ def inspect(path: Path):
   Print all datasets in an HDF5 file with shape and dtype.
   """
   if not path.exists():
-    err_console.print(f"[red]File not found:[/red] {path}", style="bold red")
+    err_console.print(f"File not found: {path}", style="bold red")
     raise typer.Exit(code=1)
 
   table = Table(title=str(path))
