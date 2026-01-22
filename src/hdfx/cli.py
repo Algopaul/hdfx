@@ -5,7 +5,6 @@ from typing import List, Optional
 import h5py
 import numpy as np
 import typer
-from rich import box
 from rich.console import Console
 from rich.table import Table
 
