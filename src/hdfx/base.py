@@ -4,6 +4,21 @@ import h5py
 import numpy as np
 
 
+def parse_slice(s):
+
+  def part(p):
+    if p == ":":
+      return slice(None)
+    a = [int(x) if x else None for x in p.split(":")]
+    if len(a) == 1:
+      assert type(a[0]) == int
+      return slice(a[0], a[0] + 1)
+    else:
+      return slice(*a)
+
+  return tuple(part(p) for p in s.split(","))
+
+
 def get_chunk_rows(
     chunk_rows: Optional[int],
     target_chunk_mb: Optional[float],

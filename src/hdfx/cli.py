@@ -1,6 +1,6 @@
 from glob import glob
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, cast
 
 import h5py
 import numpy as np
@@ -8,6 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from hdfx.base import parse_slice
 from hdfx.merge import h5merge
 from hdfx.shard import h5shard
 
@@ -56,6 +57,24 @@ def inspect(path: Path):
     f.visititems(visit)
 
   console.print(table)
+
+
+@app.command()
+def slice(
+    infile: Path = typer.Argument(..., help="Input HDF5 file"),
+    outfile: Path = typer.Argument(..., help="Base name for output shards"),
+    dataset: str = typer.Argument(..., help="Which dataset to slice"),
+    slice: str = typer.Argument(..., help="How to slice the dataset"),
+):
+  """
+  Slice a dataset according to numpy slice str description
+  """
+  with h5py.File(infile, "r") as fi, h5py.File(outfile, "w") as fo:
+    d = cast(h5py.Dataset, fi[dataset])
+    data = d[parse_slice(slice)]
+    out = fo.create_dataset(dataset, data=data, chunks=True)
+    for k, v in d.attrs.items():
+      out.attrs[k] = v
 
 
 @app.command()
