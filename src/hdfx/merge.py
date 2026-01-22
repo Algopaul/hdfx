@@ -7,11 +7,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from hdfx.shard import auto_chunk_rows_multi
-
-
-def _default_fields(f: h5py.File) -> list[str]:
-  return [k for k, v in f.items() if isinstance(v, h5py.Dataset)]
+from hdfx.base import auto_chunk_rows_multi, default_fields, get_chunk_rows
 
 
 def h5merge(
@@ -47,7 +43,7 @@ def h5merge(
 
   with h5py.File(infiles[0], "r") as f0:
     if fields is None:
-      fields = _default_fields(f0)
+      fields = default_fields(f0)
     fields = list(fields)
 
     if not fields:
@@ -93,16 +89,8 @@ def h5merge(
     else:
       final_shapes[field] = (total, *ref)
 
-  # --- resolve chunking ---
-  if chunk_rows is not None and target_chunk_mb is not None:
-    raise ValueError("Specify either chunk_rows or target_chunk_mb, not both.")
-
-  if chunk_rows is None:
-    if target_chunk_mb is None:
-      target_chunk_mb = 4.0
-    # build shapes/dtypes dict in the format auto_chunk_rows_multi expects
-    base_shapes = {f: final_shapes[f] for f in fields}
-    chunk_rows = auto_chunk_rows_multi(base_shapes, dtypes, target_chunk_mb)
+  base_shapes = {f: final_shapes[f] for f in fields}
+  chunk_rows = get_chunk_rows(chunk_rows, target_chunk_mb, base_shapes, dtypes)
 
   # --- Create output file ---
   with h5py.File(outfile, "w") as fout:
