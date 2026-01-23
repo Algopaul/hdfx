@@ -1,6 +1,6 @@
 from glob import glob
 from pathlib import Path
-from typing import List, Optional, cast
+from typing import Annotated, List, Optional, cast
 
 import h5py
 import numpy as np
@@ -11,6 +11,7 @@ from rich.table import Table
 from hdfx.base import parse_slice
 from hdfx.merge import h5merge
 from hdfx.shard import h5shard
+from hdfx.statistics import Welford
 
 app = typer.Typer(help="Unix-style tools for working with HDF5")
 console = Console()
@@ -24,7 +25,13 @@ def chunk_bytes(ds: h5py.Dataset):
 
 
 @app.command()
-def inspect(path: Path):
+def inspect(
+    path: Path,
+    *,
+    with_statistics: Annotated[
+        bool,
+        typer.Option("--with-statistics", help="Compute mean and std")] = False,
+):
   """
   Print all datasets in an HDF5 file with shape and dtype.
   """
@@ -39,6 +46,10 @@ def inspect(path: Path):
   table.add_column("Chunks")
   table.add_column("Chunk MB", justify="right")
 
+  if with_statistics:
+    table.add_column("mean", justify="right")
+    table.add_column("std", justify="right")
+
   with h5py.File(path, "r") as f:
 
     def visit(name, obj):
@@ -46,13 +57,21 @@ def inspect(path: Path):
         chunks = obj.chunks if obj.chunks is not None else "-"
         cb = chunk_bytes(obj)
         cb_str = "-" if cb is None else f"{cb/1024**2:.2f} MB"
-        table.add_row(
+        col_args = [
             name,
             str(tuple(obj.shape)),
             str(obj.dtype),
-            str(chunks),
-            cb_str,
-        )
+            str(chunks), cb_str
+        ]
+        if with_statistics:
+          w = Welford(obj.shape[-1])
+          step = 50
+          for i in range(0, obj.shape[0], step):
+            l = min(i + step, obj.shape[0])
+            w.update_batch(obj[i:l])
+          col_args.extend([str(w.mean), str(w.std)])
+
+        table.add_row(*col_args)
 
     f.visititems(visit)
 

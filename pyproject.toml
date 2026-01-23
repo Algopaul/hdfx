@@ -10,7 +10,8 @@ dependencies = [
   "numpy",
   "typer",
   "rich",
-  "tqdm"
+  "tqdm",
+  "pytest",
 ]
 
 [project.scripts]
