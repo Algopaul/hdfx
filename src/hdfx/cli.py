@@ -7,6 +7,7 @@ import numpy as np
 import typer
 from rich.console import Console
 from rich.table import Table
+from tqdm import tqdm
 
 from hdfx.base import parse_slice
 from hdfx.merge import h5merge
@@ -26,12 +27,12 @@ def chunk_bytes(ds: h5py.Dataset):
 
 @app.command()
 def inspect(
-    path: Path,
+    path: Path = typer.Argument(..., help="Input HDF5 file"),
     *,
     with_statistics: Annotated[
         bool,
         typer.Option("--with-statistics", help="Compute mean and std")] = False,
-):
+    steps):
   """
   Print all datasets in an HDF5 file with shape and dtype.
   """
@@ -66,7 +67,7 @@ def inspect(
         if with_statistics:
           w = Welford(obj.shape[-1])
           step = 50
-          for i in range(0, obj.shape[0], step):
+          for i in tqdm(range(0, obj.shape[0], step), desc=f'Stats for {name}'):
             l = min(i + step, obj.shape[0])
             w.update_batch(obj[i:l])
           col_args.extend([str(w.mean), str(w.std)])

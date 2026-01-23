@@ -10,6 +10,9 @@ class Welford:
     self.mean = np.zeros(ndim, dtype=dtype)
     self.m2 = np.zeros(ndim, dtype=dtype)
 
+  def __repr__(self):
+    return (f"Welford(n={self.count}, ndim={self.ndim})")
+
   def update_batch(self, x):
     '''
     update statistics a batch x with shape (..., C)
