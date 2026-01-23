@@ -66,7 +66,7 @@ def inspect(
         ]
         if with_statistics:
           step = int(chunks[0]) if chunks else 10
-          w = Welford(obj.shape[-1])
+          w = Welford(obj.shape[-1] if len(obj.shape) > 1 else 1)
           for i in tqdm(range(0, obj.shape[0], step), desc=f'Stats for {name}'):
             l = min(i + step, obj.shape[0])
             w.update_batch(obj[i:l])
