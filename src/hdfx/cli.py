@@ -32,7 +32,7 @@ def inspect(
     with_statistics: Annotated[
         bool,
         typer.Option("--with-statistics", help="Compute mean and std")] = False,
-    steps):
+):
   """
   Print all datasets in an HDF5 file with shape and dtype.
   """
@@ -65,8 +65,8 @@ def inspect(
             str(chunks), cb_str
         ]
         if with_statistics:
+          step = int(chunks[0]) if chunks else 10
           w = Welford(obj.shape[-1])
-          step = 50
           for i in tqdm(range(0, obj.shape[0], step), desc=f'Stats for {name}'):
             l = min(i + step, obj.shape[0])
             w.update_batch(obj[i:l])
