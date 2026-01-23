@@ -18,9 +18,11 @@ class Welford:
     update statistics a batch x with shape (..., C)
     '''
     batch_size = np.prod(np.array(x.shape[:-1]))
-    assert x.shape[-1] == self.ndim
-
-    y = np.reshape(x, (-1, self.ndim)).astype(self.dtype)
+    if len(x.shape) > 1:
+      assert x.shape[-1] == self.ndim
+      y = np.reshape(x, (-1, self.ndim)).astype(self.dtype)
+    else:
+      y = x
     batch_mean = np.mean(y, axis=0)
     batch_m2 = np.sum((y - batch_mean)**2, axis=0)
 
