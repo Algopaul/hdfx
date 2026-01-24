@@ -12,6 +12,7 @@ from tqdm import tqdm
 from hdfx.base import parse_slice
 from hdfx.merge import h5merge
 from hdfx.shard import h5shard
+from hdfx.shuffle import block_shuffle
 from hdfx.statistics import Welford
 
 app = typer.Typer(help="Unix-style tools for working with HDF5")
@@ -95,6 +96,17 @@ def slice(
     out = fo.create_dataset(dataset, data=data, chunks=True)
     for k, v in d.attrs.items():
       out.attrs[k] = v
+
+
+@app.command()
+def shuffle(
+    infile: Path = typer.Argument(..., help="Input HDF5 file"),
+    outfile: Path = typer.Argument(..., help="Outpuf shuffled file"),
+    block_size: int = typer.Argument(..., help="Block size"),
+    seed: int = typer.Argument(default=0, help="Random seed to use"),
+):
+  Path(outfile).parent.mkdir(parents=True, exist_ok=True)
+  block_shuffle(infile, outfile, block_size, seed)
 
 
 @app.command()
