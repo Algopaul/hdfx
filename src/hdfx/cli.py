@@ -10,7 +10,7 @@ from rich.table import Table
 from tqdm import tqdm
 
 from hdfx.base import parse_slice
-from hdfx.merge import h5merge
+from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
 from hdfx.shuffle import block_shuffle
 from hdfx.statistics import Welford
@@ -149,6 +149,50 @@ def shard(
       fields=fields,
       drop_remainder=not keep_remainder,
   )
+
+
+@app.command()
+def stack(
+    infiles: List[str] = typer.Argument(..., help="Input HDF5 files or globs"),
+    outfile: Path = typer.Argument(..., help="Output stacked HDF5 file"),
+    fields: Optional[List[str]] = typer.Option(
+        None,
+        "--field",
+        "-f",
+        help="Dataset to include (repeatable). Default: all datasets"),
+    chunk_rows: Optional[int] = typer.Option(
+        None,
+        "--chunk-rows",
+        help="Explicit number of rows per HDF5 chunk (expert mode)"),
+    target_chunk_mb: Optional[float] = typer.Option(
+        None, "--target-chunk-mb", help="Target chunk size in MB (auto mode)"),
+    virtual: bool = typer.Option(
+        False, "--virtual", help="Use a virtual dataset (no copying)"),
+):
+  """
+    Merge multiple HDF5 files along axis 0.
+    """
+  try:
+    paths = []
+    for pat in infiles:
+      matches = glob(pat)
+      if not matches:
+        raise ValueError(f"No files match pattern: {pat}")
+      paths.extend(matches)
+
+    paths = [Path(p) for p in sorted(paths)]
+
+    h5stack(
+        infiles=paths,
+        outfile=outfile,
+        chunk_rows=chunk_rows,
+        target_chunk_mb=target_chunk_mb,
+        fields=fields,
+        virtual=virtual,
+    )
+  except Exception as e:
+    err_console.print(f"[red]Error:[/red] {e}")
+    raise typer.Exit(code=1)
 
 
 @app.command()
