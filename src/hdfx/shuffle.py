@@ -2,6 +2,7 @@ from typing import cast
 
 import h5py
 import numpy as np
+from tqdm import tqdm
 
 from hdfx.base import default_fields
 
@@ -27,7 +28,7 @@ def block_shuffle(infile, outfile, block_size, seed):
         )
         src = cast(h5py.Dataset, f_in[f])
         dst = cast(h5py.Dataset, f_out[f])
-        for out_b in range(n_full):
+        for out_b in tqdm(range(n_full), desc=f'Shuffling {f}'):
           in_b = perm[out_b]
           i = in_b * block_size
           j = out_b * block_size
