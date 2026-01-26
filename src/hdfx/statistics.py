@@ -1,4 +1,6 @@
+import h5py
 import numpy as np
+from tqdm import tqdm
 
 
 class Welford:
@@ -40,3 +42,13 @@ class Welford:
   @property
   def std(self):
     return np.sqrt(self.m2 / (self.count))
+
+
+def ds_statistics(ds: h5py.Dataset, step=None):
+  if step is None:
+    step = int(ds.chunks[0]) if ds.chunks else 10
+  w = Welford(ds.shape[-1] if len(ds.shape) > 1 else 1)
+  for i in tqdm(range(0, ds.shape[0], step), desc=f'Stats for {ds.name}'):
+    l = min(i + step, ds.shape[0])
+    w.update_batch(ds[i:l])
+  return w.mean, w.std

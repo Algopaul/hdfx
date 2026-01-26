@@ -7,7 +7,7 @@ from tqdm import tqdm
 from hdfx.base import default_fields
 
 
-def block_shuffle(infile, outfile, block_size, seed):
+def h5shuffle(infile, outfile, block_size, seed):
   with h5py.File(infile, 'r') as f_in:
     fields = default_fields(f_in)
     N = cast(h5py.Dataset, f_in[fields[0]]).shape[0]

@@ -1,3 +1,6 @@
+from glob import glob
+from itertools import product
+from pathlib import Path
 from typing import Optional
 
 import h5py
@@ -37,10 +40,6 @@ def get_chunk_rows(
   return chunk_rows
 
 
-def default_fields(f: h5py.File) -> list[str]:
-  return [k for k, v in f.items() if isinstance(v, h5py.Dataset)]
-
-
 def auto_chunk_rows_multi(shapes: dict[str, tuple], dtypes: dict[str, np.dtype],
                           target_mb: float) -> int:
   """
@@ -56,3 +55,39 @@ def auto_chunk_rows_multi(shapes: dict[str, tuple], dtypes: dict[str, np.dtype],
 
   rows = int(target_mb * 1024**2 / max_bytes_per_row)
   return max(1, rows)
+
+
+def iter_chunks(dset: h5py.Dataset):
+  """
+  Iterate over all HDF5 chunks of a dataset.
+  Yields sel so that: out[sel] = dset[sel]
+  copies the dataset chunk-aligned.
+  """
+  shape = dset.shape
+  chunks = dset.chunks or shape
+  ranges = [range(0, s, c) for s, c in zip(shape, chunks)]
+
+  for start in product(*ranges):
+    stop = [min(i + c, s) for i, c, s in zip(start, chunks, shape)]
+    sel = tuple(slice(i, j) for i, j in zip(start, stop))
+    yield sel
+
+
+def resolve_files(patterns: list[str]) -> list[Path]:
+  """
+  Expand glob patterns into a sorted, deduplicated list of file paths.
+  Raises ValueError if any pattern matches no files.
+  """
+  paths: set[Path] = set()
+
+  for pat in patterns:
+    matches = glob(pat)
+    if not matches:
+      raise ValueError(f"No files match pattern: {pat}")
+    paths.update(map(Path, matches))
+
+  return sorted(paths)
+
+
+def default_fields(f: h5py.File) -> list[str]:
+  return [k for k, v in f.items() if isinstance(v, h5py.Dataset)]

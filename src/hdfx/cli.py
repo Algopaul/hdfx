@@ -7,15 +7,17 @@ import numpy as np
 import typer
 from rich.console import Console
 from rich.table import Table
-from tqdm import tqdm
 
-from hdfx.base import parse_slice
+from hdfx.base import iter_chunks, parse_slice, resolve_files
 from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
-from hdfx.shuffle import block_shuffle
-from hdfx.statistics import Welford
+from hdfx.shuffle import h5shuffle
+from hdfx.statistics import ds_statistics
 
 app = typer.Typer(help="Unix-style tools for working with HDF5")
+modify = typer.Typer()
+
+app.add_typer(modify, name="modify")
 console = Console()
 err_console = Console(stderr=True)
 
@@ -28,11 +30,18 @@ def chunk_bytes(ds: h5py.Dataset):
 
 @app.command()
 def inspect(
-    path: Path = typer.Argument(..., help="Input HDF5 file"),
-    *,
+    path: Annotated[
+        Path,
+        typer.Argument(help="Input HDF5 file"),
+    ],
+    stats_step: Annotated[
+        int | None,
+        typer.Argument(help="Batch size for statistics computation"),
+    ] = None,
     with_statistics: Annotated[
         bool,
-        typer.Option("--with-statistics", help="Compute mean and std")] = False,
+        typer.Option("--with-statistics", help="Compute mean and std"),
+    ] = False,
 ):
   """
   Print all datasets in an HDF5 file with shape and dtype.
@@ -66,12 +75,8 @@ def inspect(
             str(chunks), cb_str
         ]
         if with_statistics:
-          step = int(chunks[0]) if chunks else 10
-          w = Welford(obj.shape[-1] if len(obj.shape) > 1 else 1)
-          for i in tqdm(range(0, obj.shape[0], step), desc=f'Stats for {name}'):
-            l = min(i + step, obj.shape[0])
-            w.update_batch(obj[i:l])
-          col_args.extend([str(w.mean), str(w.std)])
+          mean, std = ds_statistics(obj, stats_step)
+          col_args.extend([str(mean), str(std)])
 
         table.add_row(*col_args)
 
@@ -106,7 +111,7 @@ def shuffle(
     seed: int = typer.Argument(default=0, help="Random seed to use"),
 ):
   Path(outfile).parent.mkdir(parents=True, exist_ok=True)
-  block_shuffle(infile, outfile, block_size, seed)
+  h5shuffle(infile, outfile, block_size, seed)
 
 
 @app.command()
@@ -173,15 +178,7 @@ def stack(
     Merge multiple HDF5 files along axis 0.
     """
   try:
-    paths = []
-    for pat in infiles:
-      matches = glob(pat)
-      if not matches:
-        raise ValueError(f"No files match pattern: {pat}")
-      paths.extend(matches)
-
-    paths = [Path(p) for p in sorted(paths)]
-
+    paths = resolve_files(infiles)
     h5stack(
         infiles=paths,
         outfile=outfile,
@@ -217,14 +214,7 @@ def merge(
     Merge multiple HDF5 files along axis 0.
     """
   try:
-    paths = []
-    for pat in infiles:
-      matches = glob(pat)
-      if not matches:
-        raise ValueError(f"No files match pattern: {pat}")
-      paths.extend(matches)
-
-    paths = [Path(p) for p in sorted(paths)]
+    paths = resolve_files(infiles)
 
     h5merge(
         infiles=paths,
@@ -237,6 +227,70 @@ def merge(
   except Exception as e:
     err_console.print(f"[red]Error:[/red] {e}")
     raise typer.Exit(code=1)
+
+
+@modify.command()
+def normalize(
+    infile: str,
+    field: str,
+):
+  with h5py.File(infile, 'a') as f:
+    obj = cast(h5py.Dataset, f[field])
+    mean, std = ds_statistics(obj)
+    for chunk in iter_chunks(obj):
+      obj[chunk] = (obj[chunk] - mean) / std
+  pass
+
+
+@modify.command()
+def expand_dims(
+    infile: Annotated[
+        str,
+        typer.Argument(help="HDF5 file to modify in-place"),
+    ],
+    field: Annotated[
+        str,
+        typer.Argument(help="Dataset path inside the file"),
+    ],
+    axis: Annotated[
+        int,
+        typer
+        .Option("--axis", help="Axis at which to insert the new dimension"),
+    ] = 0,
+):
+  with h5py.File(infile, "r+") as f:
+    src = cast(h5py.Dataset, f[field])
+    old_shape = src.shape
+    old_rank = len(old_shape)
+    new_rank = old_rank + 1
+    axis_norm = axis % new_rank
+    new_shape = (old_shape[:axis_norm] + (1,) + old_shape[axis_norm:])
+    if src.chunks is None:
+      new_chunks = None
+    else:
+      new_chunks = (src.chunks[:axis_norm] + (1,) + src.chunks[axis_norm:])
+
+    tmp_name = field + "__tmp"
+    tmp = f.create_dataset(
+        tmp_name,
+        shape=new_shape,
+        dtype=src.dtype,
+        chunks=new_chunks,
+        compression=src.compression,
+        compression_opts=src.compression_opts,
+        shuffle=src.shuffle,
+        fletcher32=src.fletcher32,
+    )
+
+    for slc in iter_chunks(src):
+      new_slc = (slc[:axis_norm] + (0,) + slc[axis_norm:])
+      tmp[new_slc] = src[slc]
+
+    for k, v in src.attrs.items():
+      tmp.attrs[k] = v
+
+    del f[field]
+    f.move(tmp_name, field)
 
 
 def main():
