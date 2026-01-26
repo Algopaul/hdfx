@@ -7,6 +7,7 @@ import numpy as np
 import typer
 from rich.console import Console
 from rich.table import Table
+from tqdm import tqdm
 
 from hdfx.base import iter_chunks, parse_slice, resolve_files
 from hdfx.merge import h5merge, h5stack
@@ -237,7 +238,7 @@ def normalize(
   with h5py.File(infile, 'a') as f:
     obj = cast(h5py.Dataset, f[field])
     mean, std = ds_statistics(obj)
-    for chunk in iter_chunks(obj):
+    for chunk in tqdm(iter_chunks(obj)):
       obj[chunk] = (obj[chunk] - mean) / std
   pass
 
@@ -282,7 +283,7 @@ def expand_dims(
         fletcher32=src.fletcher32,
     )
 
-    for slc in iter_chunks(src):
+    for slc in tqdm(iter_chunks(src)):
       new_slc = (slc[:axis_norm] + (0,) + slc[axis_norm:])
       tmp[new_slc] = src[slc]
 
