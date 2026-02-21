@@ -1,4 +1,3 @@
-from glob import glob
 from pathlib import Path
 from typing import Annotated, List, Optional, cast
 
@@ -12,7 +11,7 @@ from tqdm import tqdm
 from hdfx.base import iter_chunks, parse_slice, resolve_files
 from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
-from hdfx.shuffle import h5shuffle
+from hdfx.shuffle import h5shuffle, zarrshuffle
 from hdfx.statistics import ds_statistics
 
 app = typer.Typer(help="Unix-style tools for working with HDF5")
@@ -27,6 +26,12 @@ def chunk_bytes(ds: h5py.Dataset):
   if ds.chunks is None:
     return None
   return np.prod(ds.chunks) * ds.dtype.itemsize
+
+
+def ensure_file_exists(file: Path):
+  if not file.exists():
+    err_console.print(f'File not found: {file}', style='bold red')
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -94,14 +99,22 @@ def slice(
     slice: str = typer.Argument(..., help="How to slice the dataset"),
 ):
   """
-  Slice a dataset according to numpy slice str description
+  Slice a dataset according to numpy slice str description.
+  Examples:
+    hdfx slice data.h5 out.h5 /images '0:100,:,:'
+    hdfx slice data.h5 out.h5 /label ':,0'
   """
-  with h5py.File(infile, "r") as fi, h5py.File(outfile, "w") as fo:
-    d = cast(h5py.Dataset, fi[dataset])
-    data = d[parse_slice(slice)]
-    out = fo.create_dataset(dataset, data=data, chunks=True)
-    for k, v in d.attrs.items():
-      out.attrs[k] = v
+  ensure_file_exists(infile)
+  try:
+    with h5py.File(infile, "r") as fi, h5py.File(outfile, "a") as fo:
+      d = cast(h5py.Dataset, fi[dataset])
+      data = d[parse_slice(slice)]
+      out = fo.create_dataset(dataset, data=data, chunks=True)
+      for k, v in d.attrs.items():
+        out.attrs[k] = v
+  except Exception as e:
+    err_console.print(f'[red]Error: [/red] {e}')
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -111,8 +124,18 @@ def shuffle(
     block_size: int = typer.Argument(..., help="Block size"),
     seed: int = typer.Argument(default=0, help="Random seed to use"),
 ):
+  ensure_file_exists(infile)
+  # try:
   Path(outfile).parent.mkdir(parents=True, exist_ok=True)
-  h5shuffle(infile, outfile, block_size, seed)
+  if infile.suffix == ".zarr":
+    zarrshuffle(infile, outfile, block_size, seed)
+  elif infile.suffix == ".h5":
+    h5shuffle(infile, outfile, block_size, seed)
+  else:
+    raise ValueError("either .zarr or .h5")
+  # except Exception as e:
+  #   err_console.print(f'[red]Error: [/red] {e}')
+  #   raise typer.Exit(code=1)
 
 
 @app.command()
@@ -146,15 +169,19 @@ def shard(
       hdfx shard data.h5 shards/out 64 -f data -f time
       hdfx shard data.h5 shards/out 64 --chunk-rows 8192
     """
-  h5shard(
-      infile=infile,
-      outfile_base=outfile_base,
-      n_outfiles=n_outfiles,
-      chunk_rows=chunk_rows,
-      target_chunk_mb=target_chunk_mb,
-      fields=fields,
-      drop_remainder=not keep_remainder,
-  )
+  try:
+    h5shard(
+        infile=infile,
+        outfile_base=outfile_base,
+        n_outfiles=n_outfiles,
+        chunk_rows=chunk_rows,
+        target_chunk_mb=target_chunk_mb,
+        fields=fields,
+        drop_remainder=not keep_remainder,
+    )
+  except Exception as e:
+    err_console.print(f'[red]Error: [/red] {e}')
+    raise typer.Exit(code=1)
 
 
 @app.command()
