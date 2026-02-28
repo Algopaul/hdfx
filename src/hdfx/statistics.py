@@ -1,5 +1,6 @@
 import h5py
 import numpy as np
+import zarr
 from tqdm import tqdm
 
 
@@ -44,7 +45,8 @@ class Welford:
     return np.sqrt(self.m2 / (self.count))
 
 
-def ds_statistics(ds: h5py.Dataset, step=None):
+def ds_statistics(ds: h5py.Dataset | zarr.Array, step=None):
+  assert len(ds.shape) > 0
   if step is None:
     step = int(ds.chunks[0]) if ds.chunks else 10
   w = Welford(ds.shape[-1] if len(ds.shape) > 1 else 1)
