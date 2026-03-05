@@ -131,13 +131,13 @@ def default_fields(f: h5py.File) -> list[str]:
 
 
 @contextmanager
-def open_dataset(filename, field):
+def open_dataset(filename, field, mode='r'):
   filename = str(filename)
   if filename.endswith('.zarr'):
-    store = zarr.open(filename, mode='r')
+    store = zarr.open(filename, mode=mode)
     yield store[field]
   elif filename.endswith('.h5'):
-    f = h5py.File(filename, 'r')
+    f = h5py.File(filename, mode)
     try:
       yield f[field]
     finally:

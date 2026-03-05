@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from tqdm import tqdm
 
-from hdfx.base import iter_chunks, list_fields, parse_slice, resolve_files
+from hdfx.base import iter_chunks, list_fields, open_dataset, parse_slice, resolve_files
 from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
 from hdfx.shuffle import h5shuffle, zarrshuffle
@@ -271,8 +271,7 @@ def normalize(
     field: str,
 ):
   try:
-    with h5py.File(infile, 'a') as f:
-      obj = cast(h5py.Dataset, f[field])
+    with open_dataset(infile, field, mode='a') as obj:
       mean, std = ds_statistics(obj)
       for chunk in tqdm(iter_chunks(obj)):
         obj[chunk] = (obj[chunk] - mean) / std
