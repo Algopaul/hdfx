@@ -1,80 +1,30 @@
-from pathlib import Path
-from typing import List, cast
+from typing import cast
 
 import h5py
 import numpy as np
 import zarr
 from tqdm import tqdm
 
-from hdfx.base import default_fields
+from hdfx.base import list_fields
 
 
-def getdata(filename, field):
-  if str(filename)[-len('.zarr'):] == '.zarr':
-    f = zarr.open(filename, mode='r')
-    return f[field]
-  elif str(filename)[-len('.h5'):] == '.h5':
-    f = h5py.File(filename, 'r')
-    return f[field]
-  else:
-    raise ValueError('either .zarr or .h5')
-
-
-def _zarr_datasets(group, prefix="") -> List[str]:
-  fields = []
-  for key in group.keys():
-    path = f"{prefix}/{key}" if prefix else key
-    if isinstance(group[key], zarr.Array):
-      fields.append(path)
-    elif isinstance(group[key], zarr.Group):
-      fields.extend(_zarr_datasets(group[key], path))
-  return fields
-
-
-def _h5_datasets(group, prefix="") -> List[str]:
-  fields = []
-  for key, value in group.items():
-    path = f"{prefix}/{key}" if prefix else key
-    if isinstance(value, h5py.Dataset):
-      fields.append(path)
-    elif isinstance(value, h5py.Group):
-      fields.extend(_h5_datasets(value, path))
-  return fields
-
-
-def get_fields(filename) -> List[str]:
-  filename = Path(filename)
-
-  if filename.suffix == ".zarr":
-    f = zarr.open(str(filename), mode="r")
-    return _zarr_datasets(f)
-
-  elif filename.suffix == ".h5":
-    with h5py.File(filename, "r") as f:
-      return _h5_datasets(f)
-
-  else:
-    raise ValueError("either .zarr or .h5")
+def _shuffle_index(N, block_size, seed):
+  n_full = N // block_size
+  has_tail = N % block_size != 0
+  rng = np.random.default_rng(seed)
+  perm = rng.permutation(n_full)
+  return perm, n_full, has_tail
 
 
 def zarrshuffle(infile, outfile, block_size, seed):
+  fields = list_fields(infile)
   root_in = cast(zarr.Group, zarr.open(str(infile), mode="r"))
-  root_out = zarr.create_group(
-      str(outfile),
-      overwrite=True,
-  )
+  root_out = zarr.create_group(str(outfile), overwrite=True)
 
-  fields = get_fields(infile)
-
-  # assume first axis is sample axis
   first = cast(zarr.Array, root_in[fields[0]])
   N = first.shape[0]
 
-  has_tail = N % block_size != 0
-  n_full = N // block_size
-
-  rng = np.random.default_rng(seed)
-  perm = rng.permutation(n_full)
+  perm, n_full, has_tail = _shuffle_index(N, block_size, seed)
 
   for f in fields:
     src = cast(zarr.Array, root_in[f])
@@ -99,14 +49,11 @@ def zarrshuffle(infile, outfile, block_size, seed):
 
 
 def h5shuffle(infile, outfile, block_size, seed):
-  with h5py.File(infile, 'r') as f_in:
-    fields = default_fields(f_in)
-    N = cast(h5py.Dataset, f_in[fields[0]]).shape[0]
-    has_tail = N % block_size != 0
-    n_full = N // block_size
+  fields = list_fields(infile)
 
-    rng = np.random.default_rng(seed)
-    perm = rng.permutation(n_full)
+  with h5py.File(infile, 'r') as f_in:
+    N = cast(h5py.Dataset, f_in[fields[0]]).shape[0]
+    perm, n_full, has_tail = _shuffle_index(N, block_size, seed)
 
     with h5py.File(outfile, 'w') as f_out:
       for f in fields:

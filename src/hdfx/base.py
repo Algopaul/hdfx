@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from glob import glob
 from itertools import product
 from pathlib import Path
@@ -5,6 +6,7 @@ from typing import Optional
 
 import h5py
 import numpy as np
+import zarr
 
 
 def parse_slice(s):
@@ -89,5 +91,56 @@ def resolve_files(patterns: list[str]) -> list[Path]:
   return sorted(paths)
 
 
+def _h5_fields(group, prefix='') -> list[str]:
+  fields = []
+  for key, value in group.items():
+    path = f"{prefix}/{key}" if prefix else key
+    if isinstance(value, h5py.Dataset):
+      fields.append(path)
+    elif isinstance(value, h5py.Group):
+      fields.extend(_h5_fields(value, path))
+  return fields
+
+
+def _zarr_fields(group, prefix='') -> list[str]:
+  fields = []
+  for key in group.keys():
+    path = f"{prefix}/{key}" if prefix else key
+    if isinstance(group[key], zarr.Array):
+      fields.append(path)
+    elif isinstance(group[key], zarr.Group):
+      fields.extend(_zarr_fields(group[key], path))
+  return fields
+
+
+def list_fields(path) -> list[str]:
+  """Return all dataset/array paths in an HDF5 or zarr file."""
+  path = Path(path)
+  if path.suffix == '.h5':
+    with h5py.File(path, 'r') as f:
+      return _h5_fields(f)
+  elif path.suffix == '.zarr':
+    f = zarr.open(str(path), mode='r')
+    return _zarr_fields(f)
+  else:
+    raise ValueError(f"Unsupported file format: {path.suffix}. Use .h5 or .zarr")
+
+
 def default_fields(f: h5py.File) -> list[str]:
-  return [k for k, v in f.items() if isinstance(v, h5py.Dataset)]
+  return _h5_fields(f)
+
+
+@contextmanager
+def open_dataset(filename, field):
+  filename = str(filename)
+  if filename.endswith('.zarr'):
+    store = zarr.open(filename, mode='r')
+    yield store[field]
+  elif filename.endswith('.h5'):
+    f = h5py.File(filename, 'r')
+    try:
+      yield f[field]
+    finally:
+      f.close()
+  else:
+    raise ValueError('either .zarr or .h5')

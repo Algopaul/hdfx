@@ -48,7 +48,7 @@ class Welford:
 def ds_statistics(ds: h5py.Dataset | zarr.Array, step=None):
   assert len(ds.shape) > 0
   if step is None:
-    step = int(ds.chunks[0]) if ds.chunks else 10
+    step = int(ds.chunks[0]) if ds.chunks else max(64, ds.shape[0] // 100)
   w = Welford(ds.shape[-1] if len(ds.shape) > 1 else 1)
   for i in tqdm(range(0, ds.shape[0], step), desc=f'Stats for {ds.name}'):
     l = min(i + step, ds.shape[0])

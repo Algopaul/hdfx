@@ -4,11 +4,12 @@ from typing import Annotated, List, Optional, cast
 import h5py
 import numpy as np
 import typer
+import zarr
 from rich.console import Console
 from rich.table import Table
 from tqdm import tqdm
 
-from hdfx.base import iter_chunks, parse_slice, resolve_files
+from hdfx.base import iter_chunks, list_fields, parse_slice, resolve_files
 from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
 from hdfx.shuffle import h5shuffle, zarrshuffle
@@ -22,10 +23,11 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def chunk_bytes(ds: h5py.Dataset):
-  if ds.chunks is None:
+def chunk_bytes(obj):
+  chunks = getattr(obj, 'chunks', None)
+  if chunks is None:
     return None
-  return np.prod(ds.chunks) * ds.dtype.itemsize
+  return np.prod(chunks) * np.dtype(obj.dtype).itemsize
 
 
 def ensure_file_exists(file: Path):
@@ -34,11 +36,23 @@ def ensure_file_exists(file: Path):
     raise typer.Exit(code=1)
 
 
+def _make_row(name, obj, with_statistics, stats_step):
+  chunks = getattr(obj, 'chunks', None)
+  chunks_str = str(chunks) if chunks is not None else "-"
+  cb = chunk_bytes(obj)
+  cb_str = "-" if cb is None else f"{cb/1024**2:.2f} MB"
+  col_args = [name, str(tuple(obj.shape)), str(obj.dtype), chunks_str, cb_str]
+  if with_statistics:
+    mean, std = ds_statistics(obj, stats_step)
+    col_args.extend([str(mean), str(std)])
+  return col_args
+
+
 @app.command()
 def inspect(
     path: Annotated[
         Path,
-        typer.Argument(help="Input HDF5 file"),
+        typer.Argument(help="Input HDF5 or zarr file"),
     ],
     stats_step: Annotated[
         int | None,
@@ -50,7 +64,7 @@ def inspect(
     ] = False,
 ):
   """
-  Print all datasets in an HDF5 file with shape and dtype.
+  Print all datasets in an HDF5 or zarr file with shape and dtype.
   """
   if not path.exists():
     err_console.print(f"File not found: {path}", style="bold red")
@@ -67,26 +81,20 @@ def inspect(
     table.add_column("mean", justify="right")
     table.add_column("std", justify="right")
 
-  with h5py.File(path, "r") as f:
+  if path.suffix == '.zarr':
+    root = zarr.open(str(path), mode='r')
+    fields = list_fields(path)
+    for name in fields:
+      obj = root[name]
+      table.add_row(*_make_row(name, obj, with_statistics, stats_step))
+  else:
+    with h5py.File(path, "r") as f:
 
-    def visit(name, obj):
-      if isinstance(obj, h5py.Dataset):
-        chunks = obj.chunks if obj.chunks is not None else "-"
-        cb = chunk_bytes(obj)
-        cb_str = "-" if cb is None else f"{cb/1024**2:.2f} MB"
-        col_args = [
-            name,
-            str(tuple(obj.shape)),
-            str(obj.dtype),
-            str(chunks), cb_str
-        ]
-        if with_statistics:
-          mean, std = ds_statistics(obj, stats_step)
-          col_args.extend([str(mean), str(std)])
+      def visit(name, obj):
+        if isinstance(obj, h5py.Dataset):
+          table.add_row(*_make_row(name, obj, with_statistics, stats_step))
 
-        table.add_row(*col_args)
-
-    f.visititems(visit)
+      f.visititems(visit)
 
   console.print(table)
 
@@ -125,17 +133,17 @@ def shuffle(
     seed: int = typer.Argument(default=0, help="Random seed to use"),
 ):
   ensure_file_exists(infile)
-  # try:
-  Path(outfile).parent.mkdir(parents=True, exist_ok=True)
-  if infile.suffix == ".zarr":
-    zarrshuffle(infile, outfile, block_size, seed)
-  elif infile.suffix == ".h5":
-    h5shuffle(infile, outfile, block_size, seed)
-  else:
-    raise ValueError("either .zarr or .h5")
-  # except Exception as e:
-  #   err_console.print(f'[red]Error: [/red] {e}')
-  #   raise typer.Exit(code=1)
+  try:
+    Path(outfile).parent.mkdir(parents=True, exist_ok=True)
+    if infile.suffix == ".zarr":
+      zarrshuffle(infile, outfile, block_size, seed)
+    elif infile.suffix == ".h5":
+      h5shuffle(infile, outfile, block_size, seed)
+    else:
+      raise ValueError("either .zarr or .h5")
+  except Exception as e:
+    err_console.print(f'[red]Error: [/red] {e}')
+    raise typer.Exit(code=1)
 
 
 @app.command()
@@ -262,12 +270,15 @@ def normalize(
     infile: str,
     field: str,
 ):
-  with h5py.File(infile, 'a') as f:
-    obj = cast(h5py.Dataset, f[field])
-    mean, std = ds_statistics(obj)
-    for chunk in tqdm(iter_chunks(obj)):
-      obj[chunk] = (obj[chunk] - mean) / std
-  pass
+  try:
+    with h5py.File(infile, 'a') as f:
+      obj = cast(h5py.Dataset, f[field])
+      mean, std = ds_statistics(obj)
+      for chunk in tqdm(iter_chunks(obj)):
+        obj[chunk] = (obj[chunk] - mean) / std
+  except Exception as e:
+    err_console.print(f'[red]Error: [/red] {e}')
+    raise typer.Exit(code=1)
 
 
 @modify.command()
