@@ -1,3 +1,5 @@
+from typing import cast
+
 import h5py
 import numpy as np
 import pytest
@@ -31,7 +33,7 @@ def test_list_fields_h5_nested(tmp_path):
 
 def test_list_fields_zarr(tmp_path):
   p = tmp_path / "store.zarr"
-  root = zarr.open(str(p), mode="w")
+  root = cast(zarr.Group, zarr.open(str(p), mode="w"))
   root.create_array("a", shape=(10,), dtype="f4")
   root.create_array("b", shape=(5, 3), dtype="f4")
   fields = list_fields(p)
@@ -57,8 +59,9 @@ def test_open_dataset_h5(tmp_path):
     f.create_dataset("x", data=arr)
 
   with open_dataset(p, "x") as ds:
-    result = ds[:]
-    file_id = ds.file.id
+    result = np.asarray(ds[:])
+    h5ds = cast(h5py.Dataset, ds)
+    file_id = h5ds.file.id
 
   np.testing.assert_array_equal(result, arr)
   assert not file_id.valid, "file should be closed after context exit"
@@ -67,11 +70,11 @@ def test_open_dataset_h5(tmp_path):
 def test_open_dataset_zarr(tmp_path):
   p = tmp_path / "data.zarr"
   arr = np.arange(20, dtype=np.float32)
-  root = zarr.open(str(p), mode="w")
-  root["x"] = arr
+  root = cast(zarr.Group, zarr.open(str(p), mode="w"))
+  root["x"] = arr  # type: ignore[index]  # zarr.Group.__setitem__ missing from stubs
 
   with open_dataset(p, "x") as ds:
-    result = ds[:]
+    result = np.asarray(ds[:])
 
   np.testing.assert_array_equal(result, arr)
 
@@ -110,7 +113,7 @@ def test_iter_chunks(tmp_path):
     f.create_dataset("d", data=data, chunks=(2, 3))
 
   with h5py.File(p, "r") as f:
-    ds = f["d"]
+    ds = cast(h5py.Dataset, f["d"])
     covered = np.zeros_like(data, dtype=bool)
     for sel in iter_chunks(ds):
       covered[sel] = True

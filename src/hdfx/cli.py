@@ -82,10 +82,10 @@ def inspect(
     table.add_column("std", justify="right")
 
   if path.suffix == '.zarr':
-    root = zarr.open(str(path), mode='r')
+    root = cast(zarr.Group, zarr.open(str(path), mode='r'))
     fields = list_fields(path)
     for name in fields:
-      obj = root[name]
+      obj = cast(zarr.Array, root[name])
       table.add_row(*_make_row(name, obj, with_statistics, stats_step))
   else:
     with h5py.File(path, "r") as f:
@@ -274,7 +274,7 @@ def normalize(
     with open_dataset(infile, field, mode='a') as obj:
       mean, std = ds_statistics(obj)
       for chunk in tqdm(iter_chunks(obj)):
-        obj[chunk] = (obj[chunk] - mean) / std
+        obj[chunk] = (np.asarray(obj[chunk]) - mean) / std  # type: ignore[index]
   except Exception as e:
     err_console.print(f'[red]Error: [/red] {e}')
     raise typer.Exit(code=1)

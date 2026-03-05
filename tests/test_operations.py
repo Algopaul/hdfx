@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import h5py
 import numpy as np
@@ -8,7 +9,6 @@ import zarr
 from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
 from hdfx.shuffle import h5shuffle, zarrshuffle
-from hdfx.base import iter_chunks
 
 
 # ---------------------------------------------------------------------------
@@ -23,9 +23,9 @@ def make_h5(path: Path, **arrays) -> Path:
 
 
 def make_zarr(path: Path, **arrays) -> Path:
-  root = zarr.open(str(path), mode="w")
+  root = cast(zarr.Group, zarr.open(str(path), mode="w"))
   for name, arr in arrays.items():
-    root[name] = arr
+    root[name] = arr  # type: ignore[index]  # zarr.Group.__setitem__ missing from stubs
   return path
 
 
@@ -43,7 +43,7 @@ def test_merge_basic(tmp_path):
   h5merge([f1, f2], out, fields=["data"])
 
   with h5py.File(out, "r") as f:
-    result = f["data"][:]
+    result = cast(h5py.Dataset, f["data"])[:]
 
   assert result.shape == (20, 2)
   np.testing.assert_array_equal(result[:10], a)
@@ -76,7 +76,7 @@ def test_shard_basic(tmp_path):
     p = Path(f"{base}_{i:03d}.h5")
     assert p.exists()
     with h5py.File(p, "r") as f:
-      assert f["data"].shape[0] == 10
+      assert cast(h5py.Dataset, f["data"]).shape[0] == 10
 
 
 def test_shard_keep_remainder(tmp_path):
@@ -90,7 +90,7 @@ def test_shard_keep_remainder(tmp_path):
   for i in range(5):
     p = Path(f"{base}_{i:03d}.h5")
     with h5py.File(p, "r") as f:
-      sizes.append(f["data"].shape[0])
+      sizes.append(cast(h5py.Dataset, f["data"]).shape[0])
 
   assert sizes[-1] == 13   # 50 + remainder 3 = 13
   assert all(s == 10 for s in sizes[:-1])
@@ -111,7 +111,7 @@ def test_stack_physical(tmp_path):
   h5stack(files, out, virtual=False, chunk_rows=1, target_chunk_mb=None)
 
   with h5py.File(out, "r") as f:
-    result = f["data"][:]
+    result = cast(h5py.Dataset, f["data"])[:]
 
   assert result.shape == (4, T, C)
   for i in range(4):
@@ -129,7 +129,7 @@ def test_stack_virtual(tmp_path):
   h5stack(files, out, virtual=True)
 
   with h5py.File(out, "r") as f:
-    ds = f["data"]
+    ds = cast(h5py.Dataset, f["data"])
     assert ds.is_virtual
     assert ds.shape == (4, T, C)
 
@@ -147,10 +147,9 @@ def test_shuffle_h5_same_rows(tmp_path):
   h5shuffle(src, dst, block_size=10, seed=42)
 
   with h5py.File(dst, "r") as f:
-    result = f["data"][:]
+    result = cast(h5py.Dataset, f["data"])[:]
 
   assert result.shape == data.shape
-  # Every row of input must appear in output (set equality by sorted rows)
   src_rows = set(map(tuple, data.tolist()))
   dst_rows = set(map(tuple, result.tolist()))
   assert src_rows == dst_rows
@@ -167,7 +166,10 @@ def test_shuffle_h5_deterministic(tmp_path):
   h5shuffle(src, dst2, block_size=10, seed=7)
 
   with h5py.File(dst1, "r") as f1, h5py.File(dst2, "r") as f2:
-    np.testing.assert_array_equal(f1["data"][:], f2["data"][:])
+    np.testing.assert_array_equal(
+        cast(h5py.Dataset, f1["data"])[:],
+        cast(h5py.Dataset, f2["data"])[:],
+    )
 
 
 def test_shuffle_zarr_same_rows(tmp_path):
@@ -178,8 +180,8 @@ def test_shuffle_zarr_same_rows(tmp_path):
 
   zarrshuffle(src, dst, block_size=10, seed=99)
 
-  root = zarr.open(str(dst), mode="r")
-  result = root["data"][:]
+  root = cast(zarr.Group, zarr.open(str(dst), mode="r"))
+  result: np.ndarray = np.asarray(cast(zarr.Array, root["data"]))
 
   assert result.shape == data.shape
   src_rows = set(map(tuple, data.tolist()))
@@ -192,8 +194,6 @@ def test_shuffle_zarr_same_rows(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _run_expand_dims(infile, field, axis):
-  """Invoke the expand_dims CLI logic directly via the underlying implementation."""
-  from hdfx.cli import expand_dims
   from typer.testing import CliRunner
   from hdfx.cli import app
   runner = CliRunner()
@@ -208,7 +208,7 @@ def test_expand_dims_h5(tmp_path):
   _run_expand_dims(p, "x", 1)
 
   with h5py.File(p, "r") as f:
-    result = f["x"][:]
+    result = cast(h5py.Dataset, f["x"])[:]
 
   assert result.shape == (4, 1, 6)
   np.testing.assert_array_equal(result[:, 0, :], data)
@@ -221,7 +221,7 @@ def test_expand_dims_h5_negative_axis(tmp_path):
   _run_expand_dims(p, "x", -1)
 
   with h5py.File(p, "r") as f:
-    result = f["x"][:]
+    result = cast(h5py.Dataset, f["x"])[:]
 
   assert result.shape == (3, 4, 1)
 
@@ -232,8 +232,8 @@ def test_expand_dims_zarr(tmp_path):
 
   _run_expand_dims(p, "x", 1)
 
-  root = zarr.open(str(p), mode="r")
-  result = root["x"][:]
+  root = cast(zarr.Group, zarr.open(str(p), mode="r"))
+  result: np.ndarray = np.asarray(cast(zarr.Array, root["x"]))
 
   assert result.shape == (4, 1, 6)
   np.testing.assert_array_equal(result[:, 0, :], data)
@@ -245,8 +245,8 @@ def test_expand_dims_zarr_axis0(tmp_path):
 
   _run_expand_dims(p, "x", 0)
 
-  root = zarr.open(str(p), mode="r")
-  result = root["x"][:]
+  root = cast(zarr.Group, zarr.open(str(p), mode="r"))
+  result: np.ndarray = np.asarray(cast(zarr.Array, root["x"]))
 
   assert result.shape == (1, 5, 4)
   np.testing.assert_array_equal(result[0], data)

@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from glob import glob
 from itertools import product
 from pathlib import Path
-from typing import Optional
+from typing import Generator, Literal, Optional, cast
 
 import h5py
 import numpy as np
@@ -59,11 +59,10 @@ def auto_chunk_rows_multi(shapes: dict[str, tuple], dtypes: dict[str, np.dtype],
   return max(1, rows)
 
 
-def iter_chunks(dset: h5py.Dataset):
+def iter_chunks(dset: h5py.Dataset | zarr.Array) -> Generator[tuple[slice, ...], None, None]:
   """
-  Iterate over all HDF5 chunks of a dataset.
-  Yields sel so that: out[sel] = dset[sel]
-  copies the dataset chunk-aligned.
+  Iterate over chunks of a dataset, yielding tuple-of-slices selectors.
+  Works with both h5py.Dataset and zarr.Array.
   """
   shape = dset.shape
   chunks = dset.chunks or shape
@@ -71,8 +70,7 @@ def iter_chunks(dset: h5py.Dataset):
 
   for start in product(*ranges):
     stop = [min(i + c, s) for i, c, s in zip(start, chunks, shape)]
-    sel = tuple(slice(i, j) for i, j in zip(start, stop))
-    yield sel
+    yield cast(tuple[slice, ...], tuple(slice(i, j) for i, j in zip(start, stop)))
 
 
 def resolve_files(patterns: list[str]) -> list[Path]:
@@ -102,14 +100,15 @@ def _h5_fields(group, prefix='') -> list[str]:
   return fields
 
 
-def _zarr_fields(group, prefix='') -> list[str]:
+def _zarr_fields(group: zarr.Group, prefix='') -> list[str]:
   fields = []
   for key in group.keys():
     path = f"{prefix}/{key}" if prefix else key
-    if isinstance(group[key], zarr.Array):
+    item = group[key]
+    if isinstance(item, zarr.Array):
       fields.append(path)
-    elif isinstance(group[key], zarr.Group):
-      fields.extend(_zarr_fields(group[key], path))
+    elif isinstance(item, zarr.Group):
+      fields.extend(_zarr_fields(item, path))
   return fields
 
 
@@ -120,7 +119,7 @@ def list_fields(path) -> list[str]:
     with h5py.File(path, 'r') as f:
       return _h5_fields(f)
   elif path.suffix == '.zarr':
-    f = zarr.open(str(path), mode='r')
+    f = cast(zarr.Group, zarr.open(str(path), mode='r'))
     return _zarr_fields(f)
   else:
     raise ValueError(f"Unsupported file format: {path.suffix}. Use .h5 or .zarr")
@@ -131,15 +130,19 @@ def default_fields(f: h5py.File) -> list[str]:
 
 
 @contextmanager
-def open_dataset(filename, field, mode='r'):
+def open_dataset(
+    filename,
+    field,
+    mode: Literal['r', 'r+', 'a', 'w', 'w-'] = 'r',
+) -> Generator[h5py.Dataset | zarr.Array, None, None]:
   filename = str(filename)
   if filename.endswith('.zarr'):
-    store = zarr.open(filename, mode=mode)
-    yield store[field]
+    store = cast(zarr.Group, zarr.open(filename, mode=mode))
+    yield cast(zarr.Array, store[field])
   elif filename.endswith('.h5'):
     f = h5py.File(filename, mode)
     try:
-      yield f[field]
+      yield cast(h5py.Dataset, f[field])
     finally:
       f.close()
   else:
