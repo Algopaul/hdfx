@@ -78,7 +78,7 @@ Ordered roughly by impact.
 
 ## Minor / polish
 
-- [ ] **README** — add a full command reference (shard, merge, stack, shuffle,
+- [x] **README** — add a full command reference (shard, merge, stack, shuffle,
   slice, modify normalize/expand-dims). Right now only `inspect` is shown.
 
 - [x] **`ds_statistics` fallback step** (`statistics.py:51`)
