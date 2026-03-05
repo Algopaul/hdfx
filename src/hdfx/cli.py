@@ -284,7 +284,7 @@ def normalize(
 def expand_dims(
     infile: Annotated[
         str,
-        typer.Argument(help="HDF5 file to modify in-place"),
+        typer.Argument(help="HDF5 or zarr file to modify in-place"),
     ],
     field: Annotated[
         str,
@@ -292,43 +292,77 @@ def expand_dims(
     ],
     axis: Annotated[
         int,
-        typer
-        .Option("--axis", help="Axis at which to insert the new dimension"),
+        typer.Option("--axis", help="Axis at which to insert the new dimension"),
     ] = 0,
 ):
-  with h5py.File(infile, "r+") as f:
-    src = cast(h5py.Dataset, f[field])
-    old_shape = src.shape
-    old_rank = len(old_shape)
-    new_rank = old_rank + 1
-    axis_norm = axis % new_rank
-    new_shape = (old_shape[:axis_norm] + (1,) + old_shape[axis_norm:])
-    if src.chunks is None:
-      new_chunks = None
+  # open_dataset is not used here because expand_dims needs group-level access
+  # (creating a temp array and renaming), not just access to the one dataset.
+  try:
+    p = Path(infile)
+    if p.suffix == '.zarr':
+      root = zarr.open(infile, mode='a')
+      src = cast(zarr.Array, root[field])
+      old_shape = src.shape
+      new_rank = len(old_shape) + 1
+      axis_norm = axis % new_rank
+      new_shape = old_shape[:axis_norm] + (1,) + old_shape[axis_norm:]
+      new_chunks = src.chunks[:axis_norm] + (1,) + src.chunks[axis_norm:]
+
+      tmp_name = field + "__tmp"
+      tmp = root.create_array(
+          tmp_name,
+          shape=new_shape,
+          dtype=src.dtype,
+          chunks=new_chunks,
+          compressors=src.compressors,
+      )
+
+      for slc in tqdm(iter_chunks(src)):
+        new_slc = slc[:axis_norm] + (0,) + slc[axis_norm:]
+        tmp[new_slc] = src[slc]
+
+      for k, v in src.attrs.items():
+        tmp.attrs[k] = v
+
+      # zarr v3 Group.move / zarr.copy are not yet implemented; use fs rename
+      import shutil
+      store_root = Path(root.store.root)
+      shutil.rmtree(store_root / field)
+      (store_root / tmp_name).rename(store_root / field)
     else:
-      new_chunks = (src.chunks[:axis_norm] + (1,) + src.chunks[axis_norm:])
+      with h5py.File(infile, "r+") as f:
+        src = cast(h5py.Dataset, f[field])
+        old_shape = src.shape
+        new_rank = len(old_shape) + 1
+        axis_norm = axis % new_rank
+        new_shape = old_shape[:axis_norm] + (1,) + old_shape[axis_norm:]
+        new_chunks = None if src.chunks is None else (
+            src.chunks[:axis_norm] + (1,) + src.chunks[axis_norm:])
 
-    tmp_name = field + "__tmp"
-    tmp = f.create_dataset(
-        tmp_name,
-        shape=new_shape,
-        dtype=src.dtype,
-        chunks=new_chunks,
-        compression=src.compression,
-        compression_opts=src.compression_opts,
-        shuffle=src.shuffle,
-        fletcher32=src.fletcher32,
-    )
+        tmp_name = field + "__tmp"
+        tmp = f.create_dataset(
+            tmp_name,
+            shape=new_shape,
+            dtype=src.dtype,
+            chunks=new_chunks,
+            compression=src.compression,
+            compression_opts=src.compression_opts,
+            shuffle=src.shuffle,
+            fletcher32=src.fletcher32,
+        )
 
-    for slc in tqdm(iter_chunks(src)):
-      new_slc = (slc[:axis_norm] + (0,) + slc[axis_norm:])
-      tmp[new_slc] = src[slc]
+        for slc in tqdm(iter_chunks(src)):
+          new_slc = slc[:axis_norm] + (0,) + slc[axis_norm:]
+          tmp[new_slc] = src[slc]
 
-    for k, v in src.attrs.items():
-      tmp.attrs[k] = v
+        for k, v in src.attrs.items():
+          tmp.attrs[k] = v
 
-    del f[field]
-    f.move(tmp_name, field)
+        del f[field]
+        f.move(tmp_name, field)
+  except Exception as e:
+    err_console.print(f'[red]Error: [/red] {e}')
+    raise typer.Exit(code=1)
 
 
 def main():

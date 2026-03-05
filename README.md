@@ -105,19 +105,21 @@ Slice syntax is comma-separated NumPy-style: `:` for full axis, `a:b` for range,
 
 ### `modify normalize`
 
-Normalize a dataset in-place (subtract mean, divide by std).
+Normalize a dataset in-place (subtract mean, divide by std). Works for both HDF5 and Zarr.
 
 ```bash
 hdfx modify normalize data.h5 /features
+hdfx modify normalize data.zarr /features
 ```
 
 ---
 
 ### `modify expand-dims`
 
-Insert a new size-1 axis into a dataset in-place.
+Insert a new size-1 axis into a dataset in-place. Works for both HDF5 and Zarr.
 
 ```bash
 hdfx modify expand-dims data.h5 /labels           # inserts at axis 0 (default)
 hdfx modify expand-dims data.h5 /labels --axis -1 # inserts at last position
+hdfx modify expand-dims data.zarr /features --axis 1
 ```

@@ -8,6 +8,7 @@ import zarr
 from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
 from hdfx.shuffle import h5shuffle, zarrshuffle
+from hdfx.base import iter_chunks
 
 
 # ---------------------------------------------------------------------------
@@ -184,3 +185,68 @@ def test_shuffle_zarr_same_rows(tmp_path):
   src_rows = set(map(tuple, data.tolist()))
   dst_rows = set(map(tuple, result.tolist()))
   assert src_rows == dst_rows
+
+
+# ---------------------------------------------------------------------------
+# expand_dims
+# ---------------------------------------------------------------------------
+
+def _run_expand_dims(infile, field, axis):
+  """Invoke the expand_dims CLI logic directly via the underlying implementation."""
+  from hdfx.cli import expand_dims
+  from typer.testing import CliRunner
+  from hdfx.cli import app
+  runner = CliRunner()
+  result = runner.invoke(app, ["modify", "expand-dims", str(infile), field, "--axis", str(axis)])
+  assert result.exit_code == 0, result.output
+
+
+def test_expand_dims_h5(tmp_path):
+  data = np.arange(24, dtype=np.float32).reshape(4, 6)
+  p = make_h5(tmp_path / "data.h5", x=data)
+
+  _run_expand_dims(p, "x", 1)
+
+  with h5py.File(p, "r") as f:
+    result = f["x"][:]
+
+  assert result.shape == (4, 1, 6)
+  np.testing.assert_array_equal(result[:, 0, :], data)
+
+
+def test_expand_dims_h5_negative_axis(tmp_path):
+  data = np.arange(12, dtype=np.float32).reshape(3, 4)
+  p = make_h5(tmp_path / "data.h5", x=data)
+
+  _run_expand_dims(p, "x", -1)
+
+  with h5py.File(p, "r") as f:
+    result = f["x"][:]
+
+  assert result.shape == (3, 4, 1)
+
+
+def test_expand_dims_zarr(tmp_path):
+  data = np.arange(24, dtype=np.float32).reshape(4, 6)
+  p = make_zarr(tmp_path / "data.zarr", x=data)
+
+  _run_expand_dims(p, "x", 1)
+
+  root = zarr.open(str(p), mode="r")
+  result = root["x"][:]
+
+  assert result.shape == (4, 1, 6)
+  np.testing.assert_array_equal(result[:, 0, :], data)
+
+
+def test_expand_dims_zarr_axis0(tmp_path):
+  data = np.arange(20, dtype=np.float32).reshape(5, 4)
+  p = make_zarr(tmp_path / "data.zarr", x=data)
+
+  _run_expand_dims(p, "x", 0)
+
+  root = zarr.open(str(p), mode="r")
+  result = root["x"][:]
+
+  assert result.shape == (1, 5, 4)
+  np.testing.assert_array_equal(result[0], data)
