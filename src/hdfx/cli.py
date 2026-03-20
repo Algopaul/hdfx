@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from tqdm import tqdm
 
-from hdfx.base import iter_chunks, list_fields, open_dataset, parse_slice, resolve_files
+from hdfx.base import iter_chunks, list_fields, open_dataset, parse_slice, resolve_files, write_array
 from hdfx.merge import h5merge, h5stack
 from hdfx.shard import h5shard
 from hdfx.shuffle import h5shuffle, zarrshuffle
@@ -101,8 +101,8 @@ def inspect(
 
 @app.command()
 def slice(
-    infile: Path = typer.Argument(..., help="Input HDF5 file"),
-    outfile: Path = typer.Argument(..., help="Base name for output shards"),
+    infile: Path = typer.Argument(..., help="Input HDF5 or zarr file"),
+    outfile: Path = typer.Argument(..., help="Output file"),
     dataset: str = typer.Argument(..., help="Which dataset to slice"),
     slice: str = typer.Argument(..., help="How to slice the dataset"),
 ):
@@ -111,15 +111,14 @@ def slice(
   Examples:
     hdfx slice data.h5 out.h5 /images '0:100,:,:'
     hdfx slice data.h5 out.h5 /label ':,0'
+    hdfx slice data.zarr out.zarr images '0:100,:,:'
   """
   ensure_file_exists(infile)
   try:
-    with h5py.File(infile, "r") as fi, h5py.File(outfile, "a") as fo:
-      d = cast(h5py.Dataset, fi[dataset])
-      data = d[parse_slice(slice)]
-      out = fo.create_dataset(dataset, data=data, chunks=True)
-      for k, v in d.attrs.items():
-        out.attrs[k] = v
+    with open_dataset(infile, dataset, mode='r') as src:
+      data = np.asarray(src[parse_slice(slice)])
+      attrs = dict(src.attrs)
+    write_array(outfile, dataset, data, attrs)
   except Exception as e:
     err_console.print(f'[red]Error: [/red] {e}')
     raise typer.Exit(code=1)

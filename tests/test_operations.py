@@ -250,3 +250,41 @@ def test_expand_dims_zarr_axis0(tmp_path):
 
   assert result.shape == (1, 5, 4)
   np.testing.assert_array_equal(result[0], data)
+
+
+# ---------------------------------------------------------------------------
+# slice
+# ---------------------------------------------------------------------------
+
+def _run_slice(infile, outfile, field, slc):
+  from typer.testing import CliRunner
+  from hdfx.cli import app
+  runner = CliRunner()
+  result = runner.invoke(app, ["slice", str(infile), str(outfile), field, slc])
+  assert result.exit_code == 0, result.output
+
+
+def test_slice_h5(tmp_path):
+  data = np.arange(60, dtype=np.float32).reshape(10, 6)
+  src = make_h5(tmp_path / "src.h5", data=data)
+  dst = tmp_path / "dst.h5"
+
+  _run_slice(src, dst, "data", "2:5,:")
+
+  with h5py.File(dst, "r") as f:
+    result = cast(h5py.Dataset, f["data"])[:]
+
+  np.testing.assert_array_equal(result, data[2:5, :])
+
+
+def test_slice_zarr(tmp_path):
+  data = np.arange(60, dtype=np.float32).reshape(10, 6)
+  src = make_zarr(tmp_path / "src.zarr", data=data)
+  dst = tmp_path / "dst.zarr"
+
+  _run_slice(src, dst, "data", "2:5,:")
+
+  root = cast(zarr.Group, zarr.open(str(dst), mode="r"))
+  result = np.asarray(cast(zarr.Array, root["data"]))
+
+  np.testing.assert_array_equal(result, data[2:5, :])

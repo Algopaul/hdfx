@@ -129,6 +129,25 @@ def default_fields(f: h5py.File) -> list[str]:
   return _h5_fields(f)
 
 
+def write_array(filename, field, data: np.ndarray, attrs: dict | None = None) -> None:
+  """Write a numpy array as a new dataset in either an HDF5 or zarr file."""
+  filename = str(filename)
+  if filename.endswith('.zarr'):
+    root = cast(zarr.Group, zarr.open(filename, mode='a'))
+    dst = root.create_array(field, data=data)
+    if attrs:
+      for k, v in attrs.items():
+        dst.attrs[k] = v
+  elif filename.endswith('.h5'):
+    with h5py.File(filename, 'a') as f:
+      ds = f.create_dataset(field, data=data, chunks=True)
+      if attrs:
+        for k, v in attrs.items():
+          ds.attrs[k] = v
+  else:
+    raise ValueError('either .zarr or .h5')
+
+
 @contextmanager
 def open_dataset(
     filename,
